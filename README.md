@@ -2,10 +2,10 @@
 
 A Fruit Ninja-style browser game you play with **your hand and a webcam**, no mouse or keyboard needed. Slice the colored balls, avoid the black ones, and score as high as you can in 60 seconds. Hand tracking runs entirely in your browser using **TensorFlow.js**.
 
-**[▶ Play it live](https://your-username.github.io/your-repo-name/)** &nbsp;|&nbsp; *(replace with your GitHub Pages link)*
+**[▶ Play it live](https://dswathi512.github.io/Slash-Game/)** 
 
-![Gameplay screenshot](screenshot.png)
-<!-- Add a screenshot or short GIF of gameplay and save it as screenshot.png -->
+<img width="1796" height="837" alt="image" src="https://github.com/user-attachments/assets/44c3dc4e-3e98-47b3-a4bd-7559ae130dbe" />
+
 
 ---
 
