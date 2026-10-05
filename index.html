@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Slash Game</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div id="game-container">
+    <!-- Background Pixel Canvas -->
+    <canvas id="skyline-art" width="160" height="120"></canvas>
+
+    <!-- UI Overlay Canvas for Start Screen Fingertip Cursor -->
+    <canvas id="ui-canvas" width="640" height="480" style="position:absolute; top:0; left:0; pointer-events:none; z-index:15;"></canvas>
+
+    <!-- START SCREEN -->
+    <div id="start-screen" class="screen active">
+      <h1>SLASH GAME</h1>
+      <p>HOVER FINGER OVER BUTTON TO START</p>
+      <p style="color: #ff2266;">AVOID BLACK BOMBS (MAX 3!)</p>
+
+      <!-- Pixel Red/Pink Arrow Canvas -->
+      <canvas id="start-arrow-canvas" class="arrow-canvas" width="16" height="16"></canvas>
+
+      <button id="start-btn" class="pixel-btn" disabled>LOADING MODEL...</button>
+    </div>
+
+    <!-- GAME AREA -->
+    <div id="game-area" class="screen">
+      <div id="hud">
+        <div class="hud-score">SCORE:<span id="hud-score-val">0</span></div>
+        <div class="hud-time">TIME:<span id="hud-time-val">60</span>S</div>
+        <div class="hud-bomb">BOMBS:<span id="hud-bomb-val">0</span>/3</div>
+      </div>
+      <canvas id="canvas" width="640" height="480"></canvas>
+    </div>
+
+    <!-- GAME OVER SCREEN -->
+    <div id="gameover-screen" class="screen">
+      <h1>GAME OVER</h1>
+      <p id="gameover-reason" style="color: #ff2266; font-size: 11px;"></p>
+      <p>FINAL SCORE: <span id="final-score" style="color: #ffffff;">0</span></p>
+
+      <!-- Pixel Red/Pink Arrow Canvas -->
+      <canvas id="restart-arrow-canvas" class="arrow-canvas" width="16" height="16"></canvas>
+
+      <button id="restart-btn" class="pixel-btn">HOVER TO RESTART</button>
+    </div>
+  </div>
+
+  <video id="video" playsinline muted style="display:none"></video>
+
+  <!-- TensorFlow Core -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+  
+  <!-- MediaPipe Hands -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection"></script>
+
+  <!-- Pixel Art Script -->
+  <script src="pixel-art.js"></script>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const uiCanvas = document.getElementById('ui-canvas');
+    const uiCtx = uiCanvas.getContext('2d');
+
+    // State Machine
+    let gameState = 'start';
+    let detector = null;
+    let cameraStream = null;
+
+    // Rules
+    const GAME_DURATION = 60;
+    const MAX_BOMBS = 3;
+
+    let score = 0;
+    let bombCount = 0;
+    let startTime = 0;
+
+    // Hover Trigger Mechanics
+    let hoverStartTime = null;
+    const HOVER_DURATION = 1200;
+
+    // Physics & Game Data
+    const balls = [];
+    const halfBalls = [];
+    const gravity = 0.25;
+    let lastSpawnTime = 0;
+    let nextSpawnDelay = 400;
+    const targetColors = ['#FF1493', '#FF69B4', '#FFD700', '#00FFFF', '#00FF7F'];
+
+    // Tracking Buffer
+    const trail = [];
+    const MAX_TRAIL_LENGTH = 15;
+    let smoothX = null;
+    let smoothY = null;
+    const alpha = 0.6;
+
+    function showScreen(name) {
+      document.querySelectorAll('.screen').forEach(s => {
+        s.classList.remove('active');
+        s.classList.remove('open');
+      });
+
+      const target = document.getElementById(name);
+      target.classList.add('active');
+      if (name === 'game-area') target.classList.add('open');
+    }
+
+    async function initCamera() {
+      if (!cameraStream) {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480 }
+        });
+        video.srcObject = cameraStream;
+        await new Promise(resolve => (video.onloadedmetadata = resolve));
+        video.play();
+      }
+    }
+
+    async function preloadModelAndStartLoop() {
+      const startBtn = document.getElementById('start-btn');
+      try {
+        await initCamera();
+        const model = handPoseDetection.SupportedModels.MediaPipeHands;
+        detector = await handPoseDetection.createDetector(model, {
+          runtime: 'mediapipe',
+          solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/hands',
+          modelType: 'lite',
+          maxHands: 1
+        });
+        startBtn.textContent = 'HOVER TO START';
+        startBtn.disabled = false;
+
+        requestAnimationFrame(globalLoop);
+      } catch (err) {
+        console.error("Initialization error:", err);
+        startBtn.textContent = 'ERROR LOADING CAMERA/MODEL';
+      }
+    }
+
+    function checkButtonHover(fingerX, fingerY, buttonId, triggerCallback) {
+      const btn = document.getElementById(buttonId);
+      if (!btn || btn.disabled) return;
+
+      const rect = btn.getBoundingClientRect();
+      const containerRect = document.getElementById('game-container').getBoundingClientRect();
+
+      const btnMinX = rect.left - containerRect.left;
+      const btnMaxX = btnMinX + rect.width;
+      const btnMinY = rect.top - containerRect.top;
+      const btnMaxY = btnMinY + rect.height;
+
+      if (fingerX >= btnMinX && fingerX <= btnMaxX && fingerY >= btnMinY && fingerY <= btnMaxY) {
+        if (!hoverStartTime) hoverStartTime = performance.now();
+        const elapsed = performance.now() - hoverStartTime;
+        const progress = Math.min(100, (elapsed / HOVER_DURATION) * 100);
+
+        btn.style.setProperty('--hover-progress', `${progress}%`);
+
+        if (elapsed >= HOVER_DURATION) {
+          hoverStartTime = null;
+          btn.style.setProperty('--hover-progress', `0%`);
+          triggerCallback();
+        }
+      } else {
+        btn.style.setProperty('--hover-progress', `0%`);
+      }
+    }
+
+    function startGameWithZoom() {
+      const container = document.getElementById('game-container');
+      container.classList.add('zooming');
+
+      setTimeout(() => {
+        container.classList.remove('zooming');
+        startGame();
+      }, 700);
+    }
+
+    function startGame() {
+      score = 0;
+      bombCount = 0;
+      balls.length = 0;
+      halfBalls.length = 0;
+      trail.length = 0;
+      smoothX = null;
+      smoothY = null;
+
+      updateHUD();
+      startTime = performance.now();
+      gameState = 'playing';
+      showScreen('game-area');
+    }
+
+    function triggerGameOver(reason) {
+      gameState = 'gameover';
+      document.getElementById('gameover-reason').textContent = reason;
+      document.getElementById('final-score').textContent = score;
+      showScreen('gameover-screen');
+    }
+
+    function updateHUD() {
+      const elapsed = (performance.now() - startTime) / 1000;
+      const remainingTime = Math.max(0, Math.ceil(GAME_DURATION - elapsed));
+
+      document.getElementById('hud-score-val').textContent = score;
+      document.getElementById('hud-time-val').textContent = remainingTime;
+      document.getElementById('hud-bomb-val').textContent = bombCount;
+
+      if (remainingTime <= 0 && gameState === 'playing') {
+        triggerGameOver("TIME'S UP!");
+      }
+    }
+
+    function segmentHitsCircle(ax, ay, bx, by, cx, cy, r) {
+      const abx = bx - ax, aby = by - ay;
+      const acx = cx - ax, acy = cy - ay;
+      const abLengthSq = abx * abx + aby * aby;
+
+      if (abLengthSq === 0) return (acx * acx + acy * acy) <= r * r;
+
+      let t = Math.max(0, Math.min(1, (acx * abx + acy * aby) / abLengthSq));
+      const px = ax + t * abx, py = ay + t * aby;
+      const distX = cx - px, distY = cy - py;
+
+      return (distX * distX + distY * distY) <= r * r;
+    }
+
+    function spawnBall(now) {
+      if (now - lastSpawnTime > nextSpawnDelay) {
+        const isBlack = Math.random() < 0.2;
+        const chosenColor = isBlack 
+          ? 'black' 
+          : targetColors[Math.floor(Math.random() * targetColors.length)];
+
+        balls.push({
+          x: Math.random() * (canvas.width - 100) + 50,
+          y: canvas.height + 30,
+          vx: (Math.random() - 0.5) * 4,
+          vy: -(Math.random() * 4 + 11),
+          r: 25,
+          color: chosenColor,
+          isBomb: isBlack,
+          points: isBlack ? -50 : 10
+        });
+
+        lastSpawnTime = now;
+        nextSpawnDelay = Math.random() * 400 + 400;
+      }
+    }
+
+    function createSlicedHalves(ball) {
+      halfBalls.push(
+        { x: ball.x, y: ball.y, vx: ball.vx - 3, vy: ball.vy - 1, r: ball.r, color: ball.color, isBomb: ball.isBomb, angle: 0, vRot: -0.1, isLeft: true },
+        { x: ball.x, y: ball.y, vx: ball.vx + 3, vy: ball.vy - 1, r: ball.r, color: ball.color, isBomb: ball.isBomb, angle: 0, vRot: 0.1, isLeft: false }
+      );
+    }
+
+    function updateAndDrawGameObjects(now) {
+      spawnBall(now);
+
+      for (let i = balls.length - 1; i >= 0; i--) {
+        const ball = balls[i];
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+        ball.vy += gravity;
+
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+        ctx.fillStyle = ball.color;
+        ctx.fill();
+
+        ctx.strokeStyle = ball.isBomb ? '#FF0000' : '#FFFFFF';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        if (ball.y - ball.r > canvas.height + 40) balls.splice(i, 1);
+      }
+
+      for (let i = halfBalls.length - 1; i >= 0; i--) {
+        const half = halfBalls[i];
+        half.x += half.vx;
+        half.y += half.vy;
+        half.vy += gravity;
+        half.angle += half.vRot;
+
+        ctx.save();
+        ctx.translate(half.x, half.y);
+        ctx.rotate(half.angle);
+
+        ctx.beginPath();
+        ctx.arc(0, 0, half.r, half.isLeft ? Math.PI / 2 : (Math.PI * 3) / 2, half.isLeft ? (Math.PI * 3) / 2 : Math.PI / 2);
+        ctx.closePath();
+
+        ctx.fillStyle = half.color;
+        ctx.fill();
+        ctx.strokeStyle = half.isBomb ? '#FF0000' : '#FFFFFF';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+
+        if (half.y - half.r > canvas.height + 40) halfBalls.splice(i, 1);
+      }
+    }
+
+    function checkCollisions() {
+      if (trail.length >= 2) {
+        const prev = trail[trail.length - 2];
+        const curr = trail[trail.length - 1];
+
+        for (let i = balls.length - 1; i >= 0; i--) {
+          const ball = balls[i];
+
+          if (segmentHitsCircle(prev.x, prev.y, curr.x, curr.y, ball.x, ball.y, ball.r)) {
+            score += ball.points;
+
+            if (ball.isBomb) {
+              bombCount++;
+              if (bombCount >= MAX_BOMBS) {
+                triggerGameOver("TOO MANY BOMBS!");
+                return;
+              }
+            }
+
+            createSlicedHalves(ball);
+            balls.splice(i, 1);
+          }
+        }
+      }
+    }
+
+    async function globalLoop(now) {
+      uiCtx.clearRect(0, 0, 640, 480);
+
+      try {
+        const hands = await detector.estimateHands(video, { flipHorizontal: true });
+
+        if (hands.length > 0) {
+          const hand = hands[0];
+          const tip = hand.keypoints.find(k => k.name === 'index_finger_tip') || hand.keypoints[8];
+
+          if (tip && !isNaN(tip.x) && !isNaN(tip.y)) {
+            if (smoothX === null || smoothY === null) {
+              smoothX = tip.x;
+              smoothY = tip.y;
+            } else {
+              smoothX = smoothX + alpha * (tip.x - smoothX);
+              smoothY = smoothY + alpha * (tip.y - smoothY);
+            }
+            trail.push({ x: smoothX, y: smoothY });
+          }
+
+          if (trail.length > MAX_TRAIL_LENGTH) trail.shift();
+        } else {
+          trail.length = 0;
+          smoothX = null;
+          smoothY = null;
+          hoverStartTime = null;
+        }
+
+        if (gameState === 'start' || gameState === 'gameover') {
+          if (smoothX !== null && smoothY !== null) {
+            uiCtx.beginPath();
+            uiCtx.arc(smoothX, smoothY, 8, 0, Math.PI * 2);
+            uiCtx.fillStyle = '#ff1493';
+            uiCtx.fill();
+
+            if (gameState === 'start') {
+              checkButtonHover(smoothX, smoothY, 'start-btn', startGameWithZoom);
+            } else if (gameState === 'gameover') {
+              checkButtonHover(smoothX, smoothY, 'restart-btn', startGameWithZoom);
+            }
+          }
+        }
+
+        if (gameState === 'playing') {
+          ctx.save();
+          ctx.scale(-1, 1);
+          ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+          ctx.restore();
+
+          updateAndDrawGameObjects(now);
+          updateHUD();
+          checkCollisions();
+
+          for (let i = 1; i < trail.length; i++) {
+            const prev = trail[i - 1];
+            const curr = trail[i];
+            const progress = i / trail.length;
+
+            ctx.beginPath();
+            ctx.moveTo(prev.x, prev.y);
+            ctx.lineTo(curr.x, curr.y);
+            ctx.strokeStyle = `rgba(255, 105, 180, ${progress})`;
+            ctx.lineWidth = progress * 12;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+          }
+        }
+      } catch (err) {
+        console.error("Global loop error:", err);
+      }
+
+      requestAnimationFrame(globalLoop);
+    }
+
+    preloadModelAndStartLoop();
+  </script>
+</body>
+</html>

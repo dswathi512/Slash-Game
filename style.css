@@ -1,0 +1,185 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+* {
+  box-sizing: border-box;
+  user-select: none;
+}
+
+body {
+  margin: 0;
+  background: #2b001e;
+  color: #fff;
+  font-family: 'Press Start 2P', monospace;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+#game-container {
+  width: 640px;
+  height: 480px;
+  position: relative;
+  background: #ffb6c1;
+  border: 4px solid #ff1493;
+  box-shadow: 0 0 25px rgba(255, 20, 147, 0.5);
+  overflow: hidden;
+  cursor: none;
+}
+
+/* Background Full Pixel Art Canvas */
+#skyline-art {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 640px;
+  height: 480px;
+  image-rendering: pixelated;
+  z-index: 0;
+  transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Zoom effect on start */
+#game-container.zooming #skyline-art {
+  transform: scale(3);
+}
+
+/* Screen Management & Transitions */
+.screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 640px;
+  height: 480px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 20px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease, transform 0.8s ease;
+  z-index: 1;
+}
+
+.screen.active {
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 10;
+}
+
+/* Start Screen Zoom-Out Effect */
+#start-screen {
+  background: transparent;
+  transform: scale(1);
+}
+
+#game-container.zooming #start-screen {
+  transform: scale(1.8);
+  opacity: 0;
+}
+
+/* Game Area Clean Zoom-In Effect */
+#game-area {
+  position: relative;
+  width: 640px;
+  height: 480px;
+  transform: scale(0.8);
+  opacity: 0;
+  transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s ease;
+}
+
+#game-area.open {
+  transform: scale(1);
+  opacity: 1;
+}
+
+canvas#canvas {
+  width: 640px;
+  height: 480px;
+  display: block;
+}
+
+/* Typography & Pink Color Palette */
+h1 {
+  font-size: 32px;
+  color: #ffffff;
+  text-shadow: 4px 4px 0px #ff1493, -2px -2px 0px #8b0046;
+  margin-bottom: 16px;
+  letter-spacing: 2px;
+}
+
+p {
+  font-size: 10px;
+  line-height: 1.8;
+  color: #fff0f5;
+  margin: 6px 0;
+  text-shadow: 2px 2px 0px #8b0046;
+}
+
+/* Pixel Red/Pink Arrow Canvas */
+.arrow-canvas {
+  width: 48px;
+  height: 48px;
+  image-rendering: pixelated;
+  margin-top: 10px;
+  margin-bottom: 6px;
+  animation: bounce 0.8s infinite alternate steps(4);
+}
+
+@keyframes bounce {
+  from { transform: translateY(0); }
+  to { transform: translateY(-8px); }
+}
+
+/* Chunky Pixel Button in Pink Style */
+.pixel-btn {
+  position: relative;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 12px;
+  background: #ff69b4;
+  color: #ffffff;
+  border: none;
+  padding: 16px 24px;
+  margin-top: 12px;
+  text-shadow: 2px 2px 0px #8b0046;
+  box-shadow: 4px 0 0 #4a0025, -4px 0 0 #4a0025, 0 4px 0 #4a0025, 0 -4px 0 #4a0025;
+  overflow: hidden;
+}
+
+.pixel-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: var(--hover-progress, 0%);
+  background: rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+}
+
+.pixel-btn:disabled {
+  background: #b86b92;
+  color: #e0b0c8;
+}
+
+/* HUD Overlay */
+#hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 640px;
+  padding: 16px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  text-shadow: 2px 2px 0px #4a0025;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.hud-score { color: #ffffff; }
+.hud-time { color: #ffeb3b; }
+.hud-bomb { color: #ff2266; }
